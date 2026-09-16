@@ -10,39 +10,39 @@
     margin:0;background:#101114;color:#eee;
     font-family:Arial,sans-serif;padding:18px
   }
-  .app{max-width:800px;margin:auto}
-  h1{text-align:center}
+  .app{max-width:850px;margin:auto}
+  h1{text-align:center;margin-bottom:20px}
   .card{
     background:#1b1d22;border:1px solid #333;
     border-radius:14px;padding:18px;margin:14px 0
   }
   textarea{
-    width:100%;height:130px;background:#0c0d0f;color:#fff;
+    width:100%;height:160px;background:#0c0d0f;color:#fff;
     border:1px solid #444;border-radius:10px;padding:12px;
-    font:16px monospace
+    font:15px monospace;line-height:1.3
   }
-  .controls-row{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
+  .controls-row{display:flex;gap:12px;align-items:center;margin-top:12px;flex-wrap:wrap}
   label{font-size:14px;color:#ccc}
   input[type="number"]{
     background:#0c0d0f;color:#fff;border:1px solid #444;
-    padding:8px;border-radius:6px;width:70px
+    padding:8px;border-radius:6px;width:75px
   }
   button{
-    border:0;border-radius:10px;padding:12px 18px;
-    font-size:16px;cursor:pointer;font-weight:bold
+    border:0;border-radius:10px;padding:12px 20px;
+    font-size:16px;cursor:pointer;font-weight:bold;transition:0.2s
   }
   #start{background:#35c46a;color:#07130b}
+  #start:hover{background:#2eb05d}
   #stop{background:#d95353;color:white}
+  #stop:hover{background:#c44343}
   
-  /* Area de Jogo Estilo Rocksmith */
   .game-display{
     background:#090a0c;border:2px solid #333;border-radius:12px;
     padding:20px;text-align:center;position:relative;overflow:hidden
   }
-  .target-note{font-size:80px;font-weight:bold;color:#4da3ff;margin:10px 0}
-  .detected-note{font-size:24px;color:#888;height:30px}
+  .target-note{font-size:75px;font-weight:bold;color:#4da3ff;margin:10px 0;min-height:90px}
+  .detected-note{font-size:20px;color:#aaa;height:30px}
   
-  /* Barra de Tempo do Hit Window */
   .time-bar-container{
     width:100%;height:10px;background:#222;border-radius:5px;
     margin:15px 0;overflow:hidden
@@ -51,7 +51,7 @@
     height:100%;width:0%;background:#4da3ff;transition:width 0.05s linear
   }
   
-  .status{font-size:22px;font-weight:bold;min-height:30px;margin:10px 0}
+  .status{font-size:22px;font-weight:bold;min-height:32px;margin:10px 0}
   .status.ok{color:#5ee68b}
   .status.bad{color:#ff7272}
   .status.waiting{color:#e6c85e}
@@ -70,16 +70,16 @@
 
 <div class="card">
   <h2>1. Tablatura & Configurações</h2>
-  <textarea id="tab">e|--0--1--3--1--0--|
-B|-----------------|
-G|-----------------|
-D|-----------------|
-A|-----------------|
-E|-----------------|</textarea>
+  <textarea id="tab">E|--12--10----------12--10----------|--8--6--------8--6------|--6--5--------|
+B|----------10--------------10------|--------6------------6--|--------6-----|
+G|--------------10--------------10--|-----------7------------|-----------7--|
+D|----------------------------------|------------------------|--------------|
+A|----------------------------------|------------------------|--------------|
+E|----------------------------------|------------------------|--------------|</textarea>
 
   <div class="controls-row">
     <label>Tempo (BPM): 
-      <input type="number" id="bpm" value="60" min="30" max="240">
+      <input type="number" id="bpm" value="80" min="30" max="240">
     </label>
     <button id="start">▶️ Iniciar Jogo</button>
     <button id="stop">⏹ Parar</button>
@@ -97,7 +97,7 @@ E|-----------------|</textarea>
       <div id="time-progress"></div>
     </div>
 
-    <div class="detected-note">Ouvindo: <span id="detected">—</span> (<span id="freq">—</span> Hz)</div>
+    <div class="detected-note">Ouvindo: <span id="detected">—</span></div>
     <div class="status" id="result">Aguardando início...</div>
   </div>
 
@@ -105,7 +105,7 @@ E|-----------------|</textarea>
   <div class="score-board">
     <div>Acertos: <strong id="hits" style="color:#5ee68b">0</strong></div>
     <div>Erros: <strong id="errors" style="color:#ff7272">0</strong></div>
-    <div>Nota: <span id="current-step">0</span>/<span id="total-steps">0</span></div>
+    <div>Passo: <span id="current-step">0</span>/<span id="total-steps">0</span></div>
   </div>
 </div>
 
@@ -116,7 +116,6 @@ const tabInput = document.getElementById("tab");
 const bpmInput = document.getElementById("bpm");
 const expectedEl = document.getElementById("expected");
 const detectedEl = document.getElementById("detected");
-const freqEl = document.getElementById("freq");
 const resultEl = document.getElementById("result");
 const timeProgress = document.getElementById("time-progress");
 const hitsText = document.getElementById("hits");
@@ -136,92 +135,107 @@ let noteStartTime = 0;
 let noteDurationMs = 1000;
 let hitInCurrentWindow = false;
 
-const TOLERANCE_CENTS = 30; // Tolerância para pequenas desafinações
 const noteNames = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 
+// Mapeamento e Varredura da Tablatura Coluna por Coluna
 function parseTab(){
   const text = tabInput.value;
-  const lines = text.split("\n");
+  const lines = text.split("\n").filter(l => l.trim().length > 0);
   const parsed = [];
 
+  const stringBases = {
+    'e': 64, 'B': 59, 'G': 55, 'D': 50, 'A': 45, 'E': 40
+  };
+
+  const structuredLines = [];
   for(const line of lines){
     const m = line.match(/^([eEBGAD])\|(.+)\|?$/);
-    if(!m) continue;
-
-    const stringChar = m[1];
-    const content = m[2];
-    const regex = /(\d+)/g;
-    let match;
-
-    while((match = regex.exec(content))){
-      const fret = parseInt(match[1]);
-      let base;
-
-      if(stringChar === "E") base = 40;      // 6ª corda (E2)
-      else if(stringChar === "A") base = 45; // 5ª corda (A2)
-      else if(stringChar === "D") base = 50; // 4ª corda (D3)
-      else if(stringChar === "G") base = 55; // 3ª corda (G3)
-      else if(stringChar === "B") base = 59; // 2ª corda (B3)
-      else if(stringChar === "e") base = 64; // 1ª corda (E4)
-      else continue;
-
-      const midi = base + fret;
-      const frequency = 440 * Math.pow(2, (midi - 69) / 12);
-
-      parsed.push({
-        midi,
-        frequency,
-        note: noteNames[midi % 12]
+    if(m){
+      structuredLines.push({
+        stringChar: m[1],
+        content: m[2],
+        base: stringBases[m[1]]
       });
     }
   }
+
+  if(structuredLines.length === 0) return [];
+
+  const maxLen = Math.max(...structuredLines.map(l => l.content.length));
+  let lastNoteCol = -1;
+
+  for(let col = 0; col < maxLen; col++){
+    const columnNotes = [];
+
+    for(const line of structuredLines){
+      if(col < line.content.length){
+        const char = line.content[col];
+        
+        if(/\d/.test(char)){
+          const prevChar = col > 0 ? line.content[col - 1] : '';
+          if(/\d/.test(prevChar)) continue; 
+
+          let fretStr = char;
+          if(col + 1 < line.content.length && /\d/.test(line.content[col + 1])){
+            fretStr += line.content[col + 1];
+          }
+
+          const fret = parseInt(fretStr);
+          const midi = line.base + fret;
+
+          columnNotes.push(noteNames[midi % 12]);
+        }
+      }
+    }
+
+    if(columnNotes.length > 0){
+      const dashDistance = (lastNoteCol === -1) ? 1 : (col - lastNoteCol);
+      lastNoteCol = col;
+
+      parsed.push({
+        notes: columnNotes,
+        displayText: columnNotes.join(" + "),
+        durationUnits: dashDistance
+      });
+    }
+  }
+
   return parsed;
 }
 
 function frequencyToNote(freq){
   if(!freq || freq < 60 || freq > 1200) return null;
-
   const midiExact = 69 + 12 * Math.log2(freq / 440);
   const midi = Math.round(midiExact);
-  const note = noteNames[((midi % 12) + 12) % 12];
-  const octave = Math.floor(midi / 12) - 1;
-  const exactFreq = 440 * Math.pow(2, (midi - 69) / 12);
-  const cents = 1200 * Math.log2(freq / exactFreq);
-
-  return { note, octave, midi, frequency: freq, cents };
+  return noteNames[((midi % 12) + 12) % 12];
 }
 
-function detectPitch(buffer, sampleRate){
-  let SIZE = buffer.length;
-  let rms = 0;
-  for(let i=0; i<SIZE; i++) rms += buffer[i]*buffer[i];
-  rms = Math.sqrt(rms/SIZE);
+// Análise Polifônica / Picos de Espectro FFT
+function detectNotesFromFFT(analyser, sampleRate){
+  const bufferLength = analyser.frequencyBinCount;
+  const frequencyData = new Float32Array(bufferLength);
+  analyser.getFloatFrequencyData(frequencyData);
 
-  if(rms < 0.015) return null; // Ignora ruído de fundo
+  const detected = new Set();
+  const threshold = -65; // Limiar dB
 
-  let bestOffset = -1;
-  let bestCorrelation = 0;
+  for (let i = 2; i < bufferLength - 2; i++) {
+    if (frequencyData[i] > threshold &&
+        frequencyData[i] > frequencyData[i - 1] &&
+        frequencyData[i] > frequencyData[i + 1]) {
 
-  for(let offset = 20; offset < SIZE/2; offset++){
-    let correlation = 0;
-    for(let i=0; i<SIZE-offset; i++) correlation += buffer[i]*buffer[i+offset];
-    correlation /= (SIZE-offset);
-
-    if(correlation > bestCorrelation){
-      bestCorrelation = correlation;
-      bestOffset = offset;
+      const freq = i * (sampleRate / analyser.fftSize);
+      const note = frequencyToNote(freq);
+      if (note) detected.add(note);
     }
   }
 
-  if(bestOffset === -1) return null;
-  return sampleRate / bestOffset;
+  return Array.from(detected);
 }
 
-// Avança para a próxima nota do tempo
 function nextNoteStep(){
   if(!running) return;
 
-  // Se a nota anterior terminou e o jogador não acertou
   if(!hitInCurrentWindow && currentIndex < notes.length){
     errors++;
     errorsText.textContent = errors;
@@ -245,34 +259,35 @@ function startNoteWindow(){
   hitInCurrentWindow = false;
   const current = notes[currentIndex];
   
-  expectedEl.textContent = current.note;
+  expectedEl.textContent = current.displayText;
   currentStepEl.textContent = currentIndex + 1;
 
   resultEl.textContent = "Toque!";
   resultEl.className = "status waiting";
 
-  const bpm = parseInt(bpmInput.value) || 60;
-  noteDurationMs = (60 / bpm) * 1000; // Tempo de cada nota em ms
+  const bpm = parseInt(bpmInput.value) || 80;
+  const baseBeatMs = (60 / bpm) * 1000;
+  const units = current.durationUnits || 1;
+  
+  noteDurationMs = Math.max(350, (baseBeatMs / 3) * units); 
   noteStartTime = Date.now();
 
   clearTimeout(noteTimer);
   noteTimer = setTimeout(nextNoteStep, noteDurationMs);
 }
 
-function checkAudioInput(info){
-  if(!info || !running || hitInCurrentWindow) return;
+function checkAudioInput(detectedNotesList){
+  if(!detectedNotesList || detectedNotesList.length === 0 || !running || hitInCurrentWindow) return;
 
-  detectedEl.textContent = info.note + info.octave;
-  freqEl.textContent = info.frequency.toFixed(1);
+  detectedEl.textContent = detectedNotesList.join(", ");
 
   const target = notes[currentIndex];
   if(!target) return;
 
-  // Aceita a nota exata e tolerância de afinador
-  const isCorrectNote = info.note === target.note;
-  const isWithinTolerance = Math.abs(info.cents) <= TOLERANCE_CENTS;
+  // Verifica se todas as notas da etapa/acorde foram tocadas
+  const allMatch = target.notes.every(n => detectedNotesList.includes(n));
 
-  if(isCorrectNote && isWithinTolerance){
+  if(allMatch){
     hitInCurrentWindow = true;
     hits++;
     hitsText.textContent = hits;
@@ -285,20 +300,12 @@ function checkAudioInput(info){
 function gameLoop(){
   if(!running) return;
 
-  // Atualiza a barra de tempo da nota atual
   const elapsed = Date.now() - noteStartTime;
   const progress = Math.min(100, (elapsed / noteDurationMs) * 100);
   timeProgress.style.width = progress + "%";
 
-  // Processa entrada do microfone
-  const buffer = new Float32Array(analyser.fftSize);
-  analyser.getFloatTimeDomainData(buffer);
-  const freq = detectPitch(buffer, audioContext.sampleRate);
-
-  if(freq){
-    const info = frequencyToNote(freq);
-    if(info) checkAudioInput(info);
-  }
+  const detectedNotes = detectNotesFromFFT(analyser, audioContext.sampleRate);
+  checkAudioInput(detectedNotes);
 
   requestAnimationFrame(gameLoop);
 }
@@ -318,10 +325,10 @@ async function startGame(){
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     source = audioContext.createMediaStreamSource(stream);
 
-    // FILTRO PASSA-ALTAS (Elimina ruídos graves e evita confusão na 1ª corda Mizinho)
+    // Filtro Passa-Altas para isolar a 1ª corda e evitar graves cruzados
     filter = audioContext.createBiquadFilter();
     filter.type = "highpass";
-    filter.frequency.value = 130; 
+    filter.frequency.value = 120; 
 
     analyser = audioContext.createAnalyser();
     analyser.fftSize = 4096;
