@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Guitar Trainer</title>
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;background:#101114;color:#eee;
+  font-family:Arial,sans-serif;padding:18px
+}
+.app{max-width:800px;margin:auto}
+h1{text-align:center}
+.card{
+  background:#1b1d22;border:1px solid #333;
+  border-radius:14px;padding:18px;margin:14px 0
+}
+textarea{
+  width:100%;height:150px;background:#0c0d0f;color:#fff;
+  border:1px solid #444;border-radius:10px;padding:12px;
+  font:18px monospace
+}
+button{
+  border:0;border-radius:10px;padding:13px 18px;
+  margin:6px 4px 0 0;font-size:16px;cursor:pointer
+}
+#start{background:#35c46a;color:#07130b}
+#stop{background:#d95353;color:white}
+#next{background:#555;color:white}
+.status{text-align:center;font-size:20px;margin:15px 0}
+.note{
+  text-align:center;font-size:70px;font-weight:bold;
+  margin:10px
+}
+.info{text-align:center;color:#aaa}
+.ok{color:#5ee68b}
+.bad{color:#ff7272}
+.target{
+  text-align:center;font-size:22px;
+  padding:14px;background:#111318;border-radius:10px
+}
+.bar{
+  height:12px;background:#333;border-radius:8px;
+  overflow:hidden;margin-top:12px
+}
+#accuracy{
+  height:100%;width:0%;background:#5ee68b;
+  transition:.15s
+}
+</style>
+</head>
+
+<body>
+<div class="app">
+
+<h1>🎸 Guitar Trainer</h1>
+
+<div class="card">
+<h2>1. Cole sua tablatura</h2>
+
+<textarea id="tab">e|--0--1--3--|
+B|-----------|
+G|-----------|
+D|-----------|
+A|-----------|
+E|-----------|</textarea>
+
+<button id="start">🎙️ Iniciar microfone</button>
+<button id="stop">⏹ Parar</button>
+</div>
+
+<div class="card">
+
+<h2>2. Treino</h2>
+
+<div class="target">
+Nota esperada:
+<strong id="expected">—</strong>
+</div>
+
+<div class="note" id="detected">—</div>
+
+<div class="status" id="result">
+Aguardando...
+</div>
+
+<div class="info">
+Frequência: <span id="freq">—</span> Hz
+</div>
+
+<div class="bar">
+<div id="accuracy"></div>
+</div>
+
+<div class="info">
+Acertos: <span id="hits">0</span> |
+Erros: <span id="errors">0</span>
+</div>
+
+<button id="next">Próxima nota</button>
+
+</div>
+
+</div>
+
+<script>
+const tab = document.getElementById("tab");
+const expected = document.getElementById("expected");
+const detected = document.getElementById("detected");
+const result = document.getElementById("result");
+const freqText = document.getElementById("freq");
+const accuracy = document.getElementById("accuracy");
+const hitsText = document.getElementById("hits");
+const errorsText = document.getElementById("errors");
+
+let audioContext;
+let analyser;
+let source;
+let stream;
+let running=false;
+let notes=[];
+let index=0;
+let hits=0;
+let errors=0;
+let lastChecked="";
+
+const noteNames=[
+"C","C#","D","D#","E","F",
+"F#","G","G#","A","A#","B"
+];
+
+function parseTab(){
+  const text=tab.value;
+  const lines=text.split("\n");
+  const result=[];
+
+  /*
+    Afinação padrão:
+    6ª E = 82.41 Hz
+    5ª A = 110.00 Hz
+    4ª D = 146.83 Hz
+    3ª G = 196.00 Hz
+    2ª B = 246.94 Hz
+    1ª E = 329.63 Hz
+  */
+
+  const tuning={
+    "E":40,
+    "A":45,
+    "D":50,
+    "G":55,
+    "B":59
+  };
+
+  /*
+    Para o primeiro protótipo usamos apenas
+    os números encontrados na tablatura.
+  */
+
+  for(const line of lines){
+    const m=line.match(/^([eEBGAD])\|(.+)\|?$/);
+    if(!m) continue;
+
+    const stringName=m[1].toUpperCase();
+    const content=m[2];
+
+    const regex=/(\d+)/g;
+    let match;
+
+    while((match=regex.exec(content))){
+      const fret=parseInt(match[1]);
+
+      let base;
+
+      if(stringName==="E") base=40;
+      else if(stringName==="A") base=45;
+      else if(stringName==="D") base=50;
+      else if(stringName==="G") base=55;
+      else if(stringName==="B") base=59;
+      else continue;
+
+      const midi=base+fret;
+      const frequency=440*Math.pow(2,(midi-69)/12);
+
+      result.push({
+        midi,
+        frequency,
+        note:noteNames[midi%12]
+      });
+    }
+  }
+
+  return result;
+}
+
+function frequencyToNote(freq){
+  if(!freq || freq<50 || freq>1200) return null;
+
+  const midi=Math.round(
+    69+12*Math.log2(freq/440)
+  );
+
+  const note=noteNames[((midi%12)+12)%12];
+  const octave=Math.floor(midi/12)-1;
+
+  const exactFreq=
+    440*Math.pow(2,(midi-69)/12);
+
+  const cents=
+    1200*Math.log2(freq/exactFreq);
+
+  return {
+    note,
+    octave,
+    midi,
+    frequency:exactFreq,
+    cents
+  };
+}
+
+/*
+  Detector simples baseado em autocorrelação.
+  Funciona melhor para notas individuais.
+*/
+function detectPitch(buffer,sampleRate){
+
+  let SIZE=buffer.length;
+
+  let rms=0;
+
+  for(let i=0;i<SIZE;i++)
+    rms+=buffer[i]*buffer[i];
+
+  rms=Math.sqrt(rms/SIZE);
+
+  if(rms<0.008)
+    return null;
+
+  let bestOffset=-1;
+  let bestCorrelation=0;
+
+  for(let offset=20;offset<SIZE/2;offset++){
+
+    let correlation=0;
+
+    for(let i=0;i<SIZE-offset;i++)
+      correlation+=
+        buffer[i]*buffer[i+offset];
+
+    correlation/=(SIZE-offset);
+
+    if(correlation>bestCorrelation){
+      bestCorrelation=correlation;
+      bestOffset=offset;
+    }
+  }
+
+  if(bestOffset===-1)
+    return null;
+
+  const frequency=sampleRate/bestOffset;
+
+  if(frequency<60 || frequency>1200)
+    return null;
+
+  return frequency;
+}
+
+function updateTarget(){
+
+  if(notes.length===0){
+    expected.textContent="—";
+    return;
+  }
+
+  const n=notes[index];
+
+  expected.textContent=n.note;
+
+  lastChecked="";
+}
+
+function checkNote(info){
+
+  if(!info) return;
+
+  detected.textContent=
+    info.note+info.octave;
+
+  freqText.textContent=
+    info.frequency.toFixed(1);
+
+  const target=notes[index];
+
+  if(!target) return;
+
+  /*
+    Aceitamos a mesma classe de nota.
+    Pequenas diferenças de afinação são toleradas.
+  */
+
+  if(info.note===target.note){
+
+    if(lastChecked!=="hit"){
+
+      hits++;
+      hitsText.textContent=hits;
+
+      result.textContent="✓ CORRETO!";
+      result.className="status ok";
+
+      accuracy.style.width=
+        Math.min(100,95+Math.random()*5)+"%";
+
+      lastChecked="hit";
+    }
+
+  }else{
+
+    result.textContent=
+      "✗ Esperado: "+target.note+
+      " | Detectado: "+info.note;
+
+    result.className="status bad";
+
+    if(lastChecked!=="bad"){
+
+      errors++;
+      errorsText.textContent=errors;
+
+      lastChecked="bad";
+    }
+  }
+}
+
+function analyse(){
+
+  if(!running) return;
+
+  const buffer=
+    new Float32Array(analyser.fftSize);
+
+  analyser.getFloatTimeDomainData(buffer);
+
+  const freq=
+    detectPitch(
+      buffer,
+      audioContext.sampleRate
+    );
+
+  if(freq){
+
+    const info=frequencyToNote(freq);
+
+    if(info)
+      checkNote(info);
+  }
+
+  requestAnimationFrame(analyse);
+}
+
+async function startMicrophone(){
+
+  try{
+
+    notes=parseTab();
+
+    if(notes.length===0){
+      alert(
+        "Não encontrei notas na tablatura."
+      );
+      return;
+    }
+
+    index=0;
+    hits=0;
+    errors=0;
+
+    hitsText.textContent="0";
+    errorsText.textContent="0";
+
+    updateTarget();
+
+    stream=
+      await navigator.mediaDevices
+      .getUserMedia({
+        audio:{
+          echoCancellation:false,
+          noiseSuppression:false,
+          autoGainControl:false
+        }
+      });
+
+    audioContext=
+      new (window.AudioContext||
+      window.webkitAudioContext)();
+
+    source=
+      audioContext
+      .createMediaStreamSource(stream);
+
+    analyser=
+      audioContext.createAnalyser();
+
+    /*
+      FFT grande = melhor resolução
+      para frequências baixas do violão.
+    */
+
+    analyser.fftSize=4096;
+
+    source.connect(analyser);
+
+    running=true;
+
+    result.textContent=
+      "🎙️ Ouvindo seu violão...";
+
+    result.className="status";
+
+    analyse();
+
+  }catch(error){
+
+    console.error(error);
+
+    alert(
+      "Não foi possível acessar o microfone. "+
+      "Verifique a permissão do navegador."
+    );
+  }
+}
+
+function stopMicrophone(){
+
+  running=false;
+
+  if(stream){
+    stream.getTracks().forEach(
+      track=>track.stop()
+    );
+  }
+
+  if(audioContext){
+    audioContext.close();
+  }
+
+  result.textContent="Microfone parado.";
+  result.className="status";
+}
+
+document
+  .getElementById("start")
+  .addEventListener("click",startMicrophone);
+
+document
+  .getElementById("stop")
+  .addEventListener("click",stopMicrophone);
+
+document
+  .getElementById("next")
+  .addEventListener("click",()=>{
+
+    if(notes.length===0)
+      notes=parseTab();
+
+    if(notes.length===0)
+      return;
+
+    index++;
+
+    if(index>=notes.length)
+      index=0;
+
+    updateTarget();
+
+    result.textContent=
+      "Toque a próxima nota.";
+
+    result.className="status";
+  });
+
+updateTarget();
+</script>
+
+</body>
+</html>
