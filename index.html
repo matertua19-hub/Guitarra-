@@ -125,6 +125,321 @@ let hits=0;
 let errors=0;
 let lastChecked="";
 
+// Tolerância de afinação em cents (ex: 25 cents = 1/4 de semitom)
+const TOLERANCE_CENTS = 25;
+
+const noteNames=[
+"C","C#","D","D#","E","F",
+"F#","G","G#","A","A#","B"
+];
+
+function parseTab(){
+  const text=tab.value;
+  const lines=text.split("\n");
+  const result=[];
+
+  /*
+    Afinação padrão (MIDI Base):
+    6ª E (Mizão)  = 40 (E2 ~82.41 Hz)
+    5ª A (Lá)     = 45 (A2 ~110.00 Hz)
+    4ª D (Ré)     = 50 (D3 ~146.83 Hz)
+    3ª G (Sol)    = 55 (G3 ~196.00 Hz)
+    2ª B (Si)     = 59 (B3 ~246.94 Hz)
+    1ª e (Mizinha)= 64 (E4 ~329.63 Hz)
+  */
+
+  for(const line of lines){
+    const m=line.match(/^([eEBGAD])\|(.+)\|?$/);
+    if(!m) continue;
+
+    const stringChar=m[1];
+    const content=m[2];
+
+    const regex=/(\d+)/g;
+    let match;
+
+    while((match=regex.exec(content))){
+      const fret=parseInt(match[1]);
+
+      let base;
+
+      if(stringChar==="E") base=40;      // 6ª corda
+      else if(stringChar==="A") base=45; // 5ª corda
+      else if(stringChar==="D") base=50; // 4ª corda
+      else if(stringChar==="G") base=55; // 3ª corda
+      else if(stringChar==="B") base=59; // 2ª corda
+      else if(stringChar==="e") base=64; // 1ª corda
+      else continue;
+
+      const midi=base+fret;
+      const frequency=440*Math.pow(2,(midi-69)/12);
+
+      result.push({
+        midi,
+        frequency,
+        note:noteNames[midi%12]
+      });
+    }
+  }
+
+  return result;
+}
+
+function frequencyToNote(freq){
+  if(!freq || freq<50 || freq>1200) return null;
+
+  const midiExact = 69 + 12 * Math.log2(freq / 440);
+  const midi = Math.round(midiExact);
+
+  const note = noteNames[((midi % 12) + 12) % 12];
+  const octave = Math.floor(midi / 12) - 1;
+
+  const exactFreq = 440 * Math.pow(2, (midi - 69) / 12);
+  const cents = 1200 * Math.log2(freq / exactFreq);
+
+  return {
+    note,
+    octave,
+    midi,
+    frequency: freq,
+    exactFreq,
+    cents
+  };
+}
+
+/*
+  Detector simples baseado em autocorrelação.
+*/
+function detectPitch(buffer,sampleRate){
+
+  let SIZE=buffer.length;
+  let rms=0;
+
+  for(let i=0;i<SIZE;i++)
+    rms+=buffer[i]*buffer[i];
+
+  rms=Math.sqrt(rms/SIZE);
+
+  if(rms<0.008)
+    return null;
+
+  let bestOffset=-1;
+  let bestCorrelation=0;
+
+  for(let offset=20;offset<SIZE/2;offset++){
+
+    let correlation=0;
+
+    for(let i=0;i<SIZE-offset;i++)
+      correlation+=buffer[i]*buffer[i+offset];
+
+    correlation/=(SIZE-offset);
+
+    if(correlation>bestCorrelation){
+      bestCorrelation=correlation;
+      bestOffset=offset;
+    }
+  }
+
+  if(bestOffset===-1)
+    return null;
+
+  const frequency=sampleRate/bestOffset;
+
+  if(frequency<60 || frequency>1200)
+    return null;
+
+  return frequency;
+}
+
+function updateTarget(){
+
+  if(notes.length===0){
+    expected.textContent="—";
+    return;
+  }
+
+  const n=notes[index];
+  expected.textContent=n.note;
+  lastChecked="";
+}
+
+function checkNote(info){
+
+  if(!info) return;
+
+  detected.textContent = info.note + info.octave;
+  freqText.textContent = info.frequency.toFixed(1);
+
+  const target = notes[index];
+  if(!target) return;
+
+  /*
+    Verifica se a classe da nota coincide E se a desafinação está dentro da tolerância
+  */
+  const isCorrectNote = info.note === target.note;
+  const isWithinTolerance = Math.abs(info.cents) <= TOLERANCE_CENTS;
+
+  if(isCorrectNote && isWithinTolerance){
+
+    if(lastChecked!=="hit"){
+      hits++;
+      hitsText.textContent=hits;
+
+      result.textContent="✓ CORRETO!";
+      result.className="status ok";
+
+      accuracy.style.width=
+        Math.min(100, 95 + Math.random()*5)+"%";
+
+      lastChecked="hit";
+    }
+
+  } else {
+
+    result.textContent=
+      "✗ Esperado: "+target.note+
+      " | Detectado: "+info.note + " (" + (info.cents > 0 ? "+" : "") + info.cents.toFixed(0) + " cents)";
+
+    result.className="status bad";
+
+    if(lastChecked!=="bad"){
+      errors++;
+      errorsText.textContent=errors;
+      lastChecked="bad";
+    }
+  }
+}
+
+function analyse(){
+
+  if(!running) return;
+
+  const buffer=new Float32Array(analyser.fftSize);
+  analyser.getFloatTimeDomainData(buffer);
+
+  const freq=detectPitch(buffer, audioContext.sampleRate);
+
+  if(freq){
+    const info=frequencyToNote(freq);
+    if(info) checkNote(info);
+  }
+
+  requestAnimationFrame(analyse);
+}
+
+async function startMicrophone(){
+
+  try{
+    notes=parseTab();
+
+    if(notes.length===0){
+      alert("Não encontrei notas na tablatura.");
+      return;
+    }
+
+    index=0;
+    hits=0;
+    errors=0;
+
+    hitsText.textContent="0";
+    errorsText.textContent="0";
+
+    updateTarget();
+
+    stream=await navigator.mediaDevices.getUserMedia({
+      audio:{
+        echoCancellation:false,
+        noiseSuppression:false,
+        autoGainControl:false
+      }
+    });
+
+    audioContext=new (window.AudioContext||window.webkitAudioContext)();
+    source=audioContext.createMediaStreamSource(stream);
+    analyser=audioContext.createAnalyser();
+
+    analyser.fftSize=4096;
+    source.connect(analyser);
+
+    running=true;
+
+    result.textContent="🎙️ Ouvindo seu violão...";
+    result.className="status";
+
+    analyse();
+
+  }catch(error){
+    console.error(error);
+    alert("Não foi possível acessar o microfone. Verifique a permissão do navegador.");
+  }
+}
+
+function stopMicrophone(){
+  running=false;
+
+  if(stream){
+    stream.getTracks().forEach(track=>track.stop());
+  }
+
+  if(audioContext){
+    audioContext.close();
+  }
+
+  result.textContent="Microfone parado.";
+  result.className="status";
+}
+
+document.getElementById("start").addEventListener("click",startMicrophone);
+document.getElementById("stop").addEventListener("click",stopMicrophone);
+
+document.getElementById("next").addEventListener("click",()=>{
+  if(notes.length===0) notes=parseTab();
+  if(notes.length===0) return;
+
+  index++;
+  if(index>=notes.length) index=0;
+
+  updateTarget();
+
+  result.textContent="Toque a próxima nota.";
+  result.className="status";
+});
+
+updateTarget();
+</script>
+
+</body>
+</html>
+</div>
+
+<button id="next">Próxima nota</button>
+
+</div>
+
+</div>
+
+<script>
+const tab = document.getElementById("tab");
+const expected = document.getElementById("expected");
+const detected = document.getElementById("detected");
+const result = document.getElementById("result");
+const freqText = document.getElementById("freq");
+const accuracy = document.getElementById("accuracy");
+const hitsText = document.getElementById("hits");
+const errorsText = document.getElementById("errors");
+
+let audioContext;
+let analyser;
+let source;
+let stream;
+let running=false;
+let notes=[];
+let index=0;
+let hits=0;
+let errors=0;
+let lastChecked="";
+
 const noteNames=[
 "C","C#","D","D#","E","F",
 "F#","G","G#","A","A#","B"
