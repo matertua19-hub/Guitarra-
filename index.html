@@ -1,368 +1,258 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" class="h-full">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Guitar Trainer - Rocksmith Style</title>
-<style>
-  *{box-sizing:border-box}
-  body{
-    margin:0;background:#101114;color:#eee;
-    font-family:Arial,sans-serif;padding:18px
-  }
-  .app{max-width:850px;margin:auto}
-  h1{text-align:center;margin-bottom:20px}
-  .card{
-    background:#1b1d22;border:1px solid #333;
-    border-radius:14px;padding:18px;margin:14px 0
-  }
-  textarea{
-    width:100%;height:160px;background:#0c0d0f;color:#fff;
-    border:1px solid #444;border-radius:10px;padding:12px;
-    font:15px monospace;line-height:1.3
-  }
-  .controls-row{display:flex;gap:12px;align-items:center;margin-top:12px;flex-wrap:wrap}
-  label{font-size:14px;color:#ccc}
-  input[type="number"]{
-    background:#0c0d0f;color:#fff;border:1px solid #444;
-    padding:8px;border-radius:6px;width:75px
-  }
-  button{
-    border:0;border-radius:10px;padding:12px 20px;
-    font-size:16px;cursor:pointer;font-weight:bold;transition:0.2s
-  }
-  #start{background:#35c46a;color:#07130b}
-  #start:hover{background:#2eb05d}
-  #stop{background:#d95353;color:white}
-  #stop:hover{background:#c44343}
-  
-  .game-display{
-    background:#090a0c;border:2px solid #333;border-radius:12px;
-    padding:20px;text-align:center;position:relative;overflow:hidden
-  }
-  .target-note{font-size:75px;font-weight:bold;color:#4da3ff;margin:10px 0;min-height:90px}
-  .detected-note{font-size:20px;color:#aaa;height:30px}
-  
-  .time-bar-container{
-    width:100%;height:10px;background:#222;border-radius:5px;
-    margin:15px 0;overflow:hidden
-  }
-  #time-progress{
-    height:100%;width:0%;background:#4da3ff;transition:width 0.05s linear
-  }
-  
-  .status{font-size:22px;font-weight:bold;min-height:32px;margin:10px 0}
-  .status.ok{color:#5ee68b}
-  .status.bad{color:#ff7272}
-  .status.waiting{color:#e6c85e}
-
-  .score-board{
-    display:flex;justify-content:space-around;
-    background:#111318;padding:12px;border-radius:8px;font-size:18px
-  }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sintetizador & Compositor IA | Tone.js</title>
+    <!-- Tailwind CSS para estilização -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tone.js para áudio -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- FontAwesome para ícones -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
+<body class="bg-slate-950 text-slate-100 h-full flex flex-col justify-between font-sans selection:bg-indigo-500 selection:text-white">
 
-<body>
-<div class="app">
+    <!-- Cabeçalho -->
+    <header class="border-b border-slate-800 bg-slate-900/50 backdrop-blur py-4 px-6 shadow-sm">
+        <div class="max-w-4xl mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="bg-indigo-600 p-2.5 rounded-xl shadow-lg shadow-indigo-500/30">
+                    <i class="fa-solid fa-music text-white text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold tracking-tight">AI Music Renderer</h1>
+                    <p class="text-xs text-slate-400">Tone.js + Instrumentos Reais (Samples)</p>
+                </div>
+            </div>
+            <div id="status-badge" class="text-xs px-3 py-1.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                Áudio Desativado (Clique para Iniciar)
+            </div>
+        </div>
+    </header>
 
-<h1>🎸 Rocksmith Web Trainer</h1>
-
-<div class="card">
-  <h2>1. Tablatura & Configurações</h2>
-  <textarea id="tab">E|--12--10----------12--10----------|--8--6--------8--6------|--6--5--------|
-B|----------10--------------10------|--------6------------6--|--------6-----|
-G|--------------10--------------10--|-----------7------------|-----------7--|
-D|----------------------------------|------------------------|--------------|
-A|----------------------------------|------------------------|--------------|
-E|----------------------------------|------------------------|--------------|</textarea>
-
-  <div class="controls-row">
-    <label>Tempo (BPM): 
-      <input type="number" id="bpm" value="80" min="30" max="240">
-    </label>
-    <button id="start">▶️ Iniciar Jogo</button>
-    <button id="stop">⏹ Parar</button>
-  </div>
-</div>
-
-<div class="card">
-  <h2>2. Palco</h2>
-  
-  <div class="game-display">
-    <div>TOQUE AGORA:</div>
-    <div class="target-note" id="expected">—</div>
-    
-    <div class="time-bar-container">
-      <div id="time-progress"></div>
-    </div>
-
-    <div class="detected-note">Ouvindo: <span id="detected">—</span></div>
-    <div class="status" id="result">Aguardando início...</div>
-  </div>
-
-  <br>
-  <div class="score-board">
-    <div>Acertos: <strong id="hits" style="color:#5ee68b">0</strong></div>
-    <div>Erros: <strong id="errors" style="color:#ff7272">0</strong></div>
-    <div>Passo: <span id="current-step">0</span>/<span id="total-steps">0</span></div>
-  </div>
-</div>
-
-</div>
-
-<script>
-const tabInput = document.getElementById("tab");
-const bpmInput = document.getElementById("bpm");
-const expectedEl = document.getElementById("expected");
-const detectedEl = document.getElementById("detected");
-const resultEl = document.getElementById("result");
-const timeProgress = document.getElementById("time-progress");
-const hitsText = document.getElementById("hits");
-const errorsText = document.getElementById("errors");
-const currentStepEl = document.getElementById("current-step");
-const totalStepsEl = document.getElementById("total-steps");
-
-let audioContext, analyser, source, filter, stream;
-let running = false;
-let notes = [];
-let currentIndex = 0;
-let hits = 0;
-let errors = 0;
-
-let noteTimer = null;
-let noteStartTime = 0;
-let noteDurationMs = 1000;
-let hitInCurrentWindow = false;
-
-const noteNames = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
-
-// Mapeamento e Varredura da Tablatura Coluna por Coluna
-function parseTab(){
-  const text = tabInput.value;
-  const lines = text.split("\n").filter(l => l.trim().length > 0);
-  const parsed = [];
-
-  const stringBases = {
-    'e': 64, 'B': 59, 'G': 55, 'D': 50, 'A': 45, 'E': 40
-  };
-
-  const structuredLines = [];
-  for(const line of lines){
-    const m = line.match(/^([eEBGAD])\|(.+)\|?$/);
-    if(m){
-      structuredLines.push({
-        stringChar: m[1],
-        content: m[2],
-        base: stringBases[m[1]]
-      });
-    }
-  }
-
-  if(structuredLines.length === 0) return [];
-
-  const maxLen = Math.max(...structuredLines.map(l => l.content.length));
-  let lastNoteCol = -1;
-
-  for(let col = 0; col < maxLen; col++){
-    const columnNotes = [];
-
-    for(const line of structuredLines){
-      if(col < line.content.length){
-        const char = line.content[col];
+    <!-- Conteúdo Principal -->
+    <main class="flex-1 max-w-4xl w-full mx-auto p-6 flex flex-col gap-6 justify-center">
         
-        if(/\d/.test(char)){
-          const prevChar = col > 0 ? line.content[col - 1] : '';
-          if(/\d/.test(prevChar)) continue; 
+        <!-- Painel de Controle / Prompt -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col gap-4">
+            <div>
+                <label for="prompt-input" class="block text-sm font-medium text-slate-300 mb-2">
+                    <i class="fa-solid fa-wand-magic-sparkles text-indigo-400 mr-2"></i>Instrução para a IA Compositora:
+                </label>
+                <div class="flex gap-3">
+                    <input type="text" id="prompt-input" 
+                        class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all text-slate-200 placeholder:text-slate-600"
+                        value="Crie uma melodia suave de piano clássico em tom maior">
+                    <button id="btn-gerar" onclick="gerarECompositar()" 
+                        class="bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-medium px-6 py-3 rounded-xl transition-all shadow-lg shadow-indigo-600/20 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                        <i class="fa-solid fa-robot"></i> Gerar e Tocar
+                    </button>
+                </div>
+            </div>
 
-          let fretStr = char;
-          if(col + 1 < line.content.length && /\d/.test(line.content[col + 1])){
-            fretStr += line.content[col + 1];
-          }
+            <!-- Controles de Reprodução -->
+            <div class="flex items-center justify-between pt-4 border-t border-slate-800/80">
+                <div class="flex items-center gap-3">
+                    <button id="btn-play" onclick="tocarMusicaAtual()" disabled
+                        class="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white w-12 h-12 rounded-xl flex items-center justify-center transition-all shadow-lg shadow-emerald-600/20 disabled:opacity-40 disabled:cursor-not-allowed">
+                        <i class="fa-solid fa-play text-lg"></i>
+                    </button>
+                    <button id="btn-stop" onclick="pararMusica()" disabled
+                        class="bg-rose-600/20 hover:bg-rose-600/30 text-rose-400 border border-rose-500/30 w-12 h-12 rounded-xl flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                        <i class="fa-solid fa-stop text-lg"></i>
+                    </button>
+                    <div class="text-xs text-slate-400 pl-2">
+                        <span id="info-musica" class="block font-medium text-slate-300">Nenhuma música carregada</span>
+                        <span id="info-tempo">BPM: -- | Notas: 0</span>
+                    </div>
+                </div>
 
-          const fret = parseInt(fretStr);
-          const midi = line.base + fret;
+                <!-- Indicador de carregamento dos samples -->
+                <div id="loading-samples" class="text-xs text-indigo-400 flex items-center gap-2 bg-indigo-500/10 px-3 py-1.5 rounded-lg border border-indigo-500/20">
+                    <i class="fa-solid fa-spinner animate-spin"></i> Carregando Samples de Piano...
+                </div>
+            </div>
+        </div>
 
-          columnNotes.push(noteNames[midi % 12]);
+        <!-- Área de Exibição do JSON gerado pela IA -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+                <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                    <i class="fa-solid fa-code text-slate-500"></i> Partitura JSON (Saída da LLM)
+                </span>
+                <span id="json-status" class="text-[10px] text-slate-500">Aguardando comando...</span>
+            </div>
+            <pre id="json-output" class="bg-slate-950 p-4 rounded-xl text-xs font-mono text-indigo-300 h-36 overflow-y-auto border border-slate-800/80 leading-relaxed"><code>// O JSON estruturado gerado pela LLM aparecerá aqui para o Tone.js renderizar.</code></pre>
+        </div>
+
+    </main>
+
+    <!-- Rodapé -->
+    <footer class="border-t border-slate-800 bg-slate-900/30 py-4 text-center text-xs text-slate-500">
+        Hospedado no GitHub Pages • Desenvolvido com Tone.js & Web Audio API
+    </footer>
+
+    <!-- Script de Lógica e Áudio -->
+    <script>
+        let sampler = null;
+        let partAtual = null;
+        let dadosJSONAtual = null;
+        let samplesProntos = false;
+
+        // Inicializa o motor de áudio do Tone.js e carrega os samples reais de piano acústico
+        async function inicializarAudio() {
+            if (samplesProntos) return;
+
+            const badge = document.getElementById('status-badge');
+            const loadingDiv = document.getElementById('loading-samples');
+
+            try {
+                // Necessário interação do usuário para destravar o contexto de áudio dos navegadores
+                await Tone.start();
+                
+                badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Áudio Ativo`;
+                badge.className = "text-xs px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-2";
+
+                // Criando o Sampler com notas reais de um piano acústico (Salamander Grand Piano)
+                sampler = new Tone.Sampler({
+                    urls: {
+                        "A0": "A0.mp3",
+                        "C1": "C1.mp3",
+                        "D#1": "Ds1.mp3",
+                        "F#1": "Fs1.mp3",
+                        "A1": "A1.mp3",
+                        "C2": "C2.mp3",
+                        "D#2": "Ds2.mp3",
+                        "F#2": "Fs2.mp3",
+                        "A2": "A2.mp3",
+                        "C3": "C3.mp3",
+                        "D#3": "Ds3.mp3",
+                        "F#3": "Fs3.mp3",
+                        "A3": "A3.mp3",
+                        "C4": "C4.mp3",
+                        "D#4": "Ds4.mp3",
+                        "F#4": "Fs4.mp3",
+                        "A4": "A4.mp3",
+                        "C5": "C5.mp3",
+                        "D#5": "Ds5.mp3",
+                        "F#5": "Fs5.mp3",
+                        "A5": "A5.mp3",
+                        "C6": "C6.mp3",
+                        "D#6": "Ds6.mp3",
+                        "F#6": "Fs6.mp3",
+                        "A6": "A6.mp3",
+                        "C7": "C7.mp3",
+                        "D#7": "Ds7.mp3",
+                        "F#7": "Fs7.mp3",
+                        "A7": "A7.mp3",
+                        "C8": "C8.mp3"
+                    },
+                    baseUrl: "https://tonejs.github.io/audio/salamander/",
+                    onload: () => {
+                        samplesProntos = true;
+                        loadingDiv.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i> Samples Prontos`;
+                        loadingDiv.className = "text-xs text-emerald-400 flex items-center gap-2 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20";
+                        if (dadosJSONAtual) {
+                            document.getElementById('btn-play').removeAttribute('disabled');
+                        }
+                    }
+                }).toDestination();
+
+            } catch (error) {
+                console.error("Erro ao iniciar áudio:", error);
+            }
         }
-      }
-    }
 
-    if(columnNotes.length > 0){
-      const dashDistance = (lastNoteCol === -1) ? 1 : (col - lastNoteCol);
-      lastNoteCol = col;
+        // Simula o comportamento da LLM gerando uma partitura JSON estruturada com base no prompt
+        // (Aqui é onde futuramente você integrará uma chamada fetch para a API da LLM)
+        async function gerarECompositar() {
+            await inicializarAudio();
+            
+            const btnGerar = document.getElementById('btn-gerar');
+            const promptTexto = document.getElementById('prompt-input').value;
+            
+            btnGerar.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> IA Compondo...`;
+            btnGerar.setAttribute('disabled', 'true');
 
-      parsed.push({
-        notes: columnNotes,
-        displayText: columnNotes.join(" + "),
-        durationUnits: dashDistance
-      });
-    }
-  }
+            setTimeout(() => {
+                // Simulação de resposta estruturada vinda de uma LLM
+                // A LLM focou estritamente em gerar dados musicais válidos para o Tone.js
+                dadosJSONAtual = {
+                    "meta": {
+                        "compositor": "LLM Assistant",
+                        "prompt": promptTexto,
+                        "instrumento": "Piano Acústico"
+                    },
+                    "tempo": 95,
+                    "notas": [
+                        { "time": "0:0:0", "note": "C4", "duration": "4n" },
+                        { "time": "0:1:0", "note": "E4", "duration": "4n" },
+                        { "time": "0:2:0", "note": "G4", "duration": "4n" },
+                        { "time": "0:3:0", "note": "B4", "duration": "4n" },
+                        { "time": "1:0:0", "note": "C5", "duration": "2n" },
+                        { "time": "1:2:0", "note": "G4", "duration": "2n" },
+                        { "time": "2:0:0", "note": "A4", "duration": "4n" },
+                        { "time": "2:1:0", "note": "F4", "duration": "4n" },
+                        { "time": "2:2:0", "note": "D4", "duration": "4n" },
+                        { "time": "2:3:0", "note": "G3", "duration": "4n" },
+                        { "time": "3:0:0", "note": "C4", "duration": "1m" }
+                    ]
+                };
 
-  return parsed;
-}
+                // Exibe o JSON na tela
+                document.getElementById('json-output').innerHTML = `<code>${JSON.stringify(dadosJSONAtual, null, 2)}</code>`;
+                document.getElementById('json-status').innerText = "Gerado com sucesso por IA";
+                
+                // Atualiza informações na interface
+                document.getElementById('info-musica').innerText = `Composição: "${promptTexto.substring(0, 30)}..."`;
+                document.getElementById('info-tempo').innerText = `BPM: ${dadosJSONAtual.tempo} | Notas: ${dadosJSONAtual.notas.length}`;
 
-function frequencyToNote(freq){
-  if(!freq || freq < 60 || freq > 1200) return null;
-  const midiExact = 69 + 12 * Math.log2(freq / 440);
-  const midi = Math.round(midiExact);
-  return noteNames[((midi % 12) + 12) % 12];
-}
+                btnGerar.innerHTML = `<i class="fa-solid fa-robot"></i> Gerar e Tocar`;
+                btnGerar.removeAttribute('disabled');
 
-// Análise Polifônica / Picos de Espectro FFT
-function detectNotesFromFFT(analyser, sampleRate){
-  const bufferLength = analyser.frequencyBinCount;
-  const frequencyData = new Float32Array(bufferLength);
-  analyser.getFloatFrequencyData(frequencyData);
+                if (samplesProntos) {
+                    document.getElementById('btn-play').removeAttribute('disabled');
+                }
 
-  const detected = new Set();
-  const threshold = -65; // Limiar dB
+                // Toca automaticamente após gerar
+                tocarMusicaAtual();
 
-  for (let i = 2; i < bufferLength - 2; i++) {
-    if (frequencyData[i] > threshold &&
-        frequencyData[i] > frequencyData[i - 1] &&
-        frequencyData[i] > frequencyData[i + 1]) {
+            }, 1000);
+        }
 
-      const freq = i * (sampleRate / analyser.fftSize);
-      const note = frequencyToNote(freq);
-      if (note) detected.add(note);
-    }
-  }
+        // Executa a música usando o Tone.js e o Sampler
+        function tocarMusicaAtual() {
+            if (!dadosJSONAtual || !samplesProntos || !sampler) return;
 
-  return Array.from(detected);
-}
+            pararMusica(); // Para qualquer execução anterior
 
-function nextNoteStep(){
-  if(!running) return;
+            Tone.Transport.bpm.value = dadosJSONAtual.tempo;
+            Tone.Transport.position = 0;
 
-  if(!hitInCurrentWindow && currentIndex < notes.length){
-    errors++;
-    errorsText.textContent = errors;
-    resultEl.textContent = "✗ ERROU (Tempo esgotado)";
-    resultEl.className = "status bad";
-  }
+            // Cria um Part do Tone.js mapeando as notas geradas pela LLM
+            partAtual = new Tone.Part((time, value) => {
+                sampler.triggerAttackRelease(value.note, value.duration, time);
+            }, dadosJSONAtual.notas);
 
-  currentIndex++;
+            partAtual.start(0);
+            Tone.Transport.start();
 
-  if(currentIndex >= notes.length){
-    stopGame();
-    resultEl.textContent = "🎉 FIM DA MÚSICA!";
-    resultEl.className = "status ok";
-    return;
-  }
+            document.getElementById('btn-play').setAttribute('disabled', 'true');
+            document.getElementById('btn-stop').removeAttribute('disabled');
+        }
 
-  startNoteWindow();
-}
-
-function startNoteWindow(){
-  hitInCurrentWindow = false;
-  const current = notes[currentIndex];
-  
-  expectedEl.textContent = current.displayText;
-  currentStepEl.textContent = currentIndex + 1;
-
-  resultEl.textContent = "Toque!";
-  resultEl.className = "status waiting";
-
-  const bpm = parseInt(bpmInput.value) || 80;
-  const baseBeatMs = (60 / bpm) * 1000;
-  const units = current.durationUnits || 1;
-  
-  noteDurationMs = Math.max(350, (baseBeatMs / 3) * units); 
-  noteStartTime = Date.now();
-
-  clearTimeout(noteTimer);
-  noteTimer = setTimeout(nextNoteStep, noteDurationMs);
-}
-
-function checkAudioInput(detectedNotesList){
-  if(!detectedNotesList || detectedNotesList.length === 0 || !running || hitInCurrentWindow) return;
-
-  detectedEl.textContent = detectedNotesList.join(", ");
-
-  const target = notes[currentIndex];
-  if(!target) return;
-
-  // Verifica se todas as notas da etapa/acorde foram tocadas
-  const allMatch = target.notes.every(n => detectedNotesList.includes(n));
-
-  if(allMatch){
-    hitInCurrentWindow = true;
-    hits++;
-    hitsText.textContent = hits;
-
-    resultEl.textContent = "✓ PERFEITO!";
-    resultEl.className = "status ok";
-  }
-}
-
-function gameLoop(){
-  if(!running) return;
-
-  const elapsed = Date.now() - noteStartTime;
-  const progress = Math.min(100, (elapsed / noteDurationMs) * 100);
-  timeProgress.style.width = progress + "%";
-
-  const detectedNotes = detectNotesFromFFT(analyser, audioContext.sampleRate);
-  checkAudioInput(detectedNotes);
-
-  requestAnimationFrame(gameLoop);
-}
-
-async function startGame(){
-  notes = parseTab();
-  if(notes.length === 0){
-    alert("Nenhuma nota encontrada na tablatura.");
-    return;
-  }
-
-  try{
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-    });
-
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    source = audioContext.createMediaStreamSource(stream);
-
-    // Filtro Passa-Altas para isolar a 1ª corda e evitar graves cruzados
-    filter = audioContext.createBiquadFilter();
-    filter.type = "highpass";
-    filter.frequency.value = 120; 
-
-    analyser = audioContext.createAnalyser();
-    analyser.fftSize = 4096;
-
-    source.connect(filter);
-    filter.connect(analyser);
-
-    hits = 0; errors = 0; currentIndex = 0;
-    hitsText.textContent = "0"; errorsText.textContent = "0";
-    totalStepsEl.textContent = notes.length;
-
-    running = true;
-    startNoteWindow();
-    gameLoop();
-
-  } catch(err){
-    console.error(err);
-    alert("Erro ao acessar o microfone.");
-  }
-}
-
-function stopGame(){
-  running = false;
-  clearTimeout(noteTimer);
-  if(stream) stream.getTracks().forEach(t => t.stop());
-  if(audioContext) audioContext.close();
-  
-  timeProgress.style.width = "0%";
-  expectedEl.textContent = "—";
-}
-
-document.getElementById("start").addEventListener("click", startGame);
-document.getElementById("stop").addEventListener("click", stopGame);
-</script>
-
+        // Para a reprodução de áudio
+        function pararMusica() {
+            Tone.Transport.stop();
+            if (partAtual) {
+                partAtual.dispose();
+                partAtual = null;
+            }
+            document.getElementById('btn-play').removeAttribute('disabled');
+            document.getElementById('btn-stop').setAttribute('disabled', 'true');
+        }
+    </script>
 </body>
 </html>
