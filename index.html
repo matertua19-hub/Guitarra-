@@ -35,19 +35,19 @@
     <!-- Conteúdo Principal -->
     <main class="flex-1 max-w-4xl w-full mx-auto p-6 flex flex-col gap-6 justify-center">
         
-        <!-- Painel de Controle / Prompt -->
+        <!-- Painel de Controle / Simulação Interna -->
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col gap-4">
             <div>
                 <label for="prompt-input" class="block text-sm font-medium text-slate-300 mb-2">
-                    <i class="fa-solid fa-wand-magic-sparkles text-indigo-400 mr-2"></i>Instrução para a IA Compositora:
+                    <i class="fa-solid fa-wand-magic-sparkles text-indigo-400 mr-2"></i>Gerador Interno (Mock):
                 </label>
                 <div class="flex gap-3">
                     <input type="text" id="prompt-input" 
                         class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all text-slate-200 placeholder:text-slate-600"
                         value="Crie uma melodia suave de piano clássico em tom maior">
-                    <button id="btn-gerar" onclick="gerarECompositar()" 
+                    <button id="btn-gerar" onclick="gerarECompositarMock()" 
                         class="bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-medium px-6 py-3 rounded-xl transition-all shadow-lg shadow-indigo-600/20 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
-                        <i class="fa-solid fa-robot"></i> Gerar e Tocar
+                        <i class="fa-solid fa-robot"></i> Gerar Padrão
                     </button>
                 </div>
             </div>
@@ -76,15 +76,19 @@
             </div>
         </div>
 
-        <!-- Área de Exibição do JSON gerado pela IA -->
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col gap-2">
+        <!-- Área de Entrada/Visualização do JSON (Colar direto aqui!) -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col gap-3">
             <div class="flex items-center justify-between">
                 <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                    <i class="fa-solid fa-code text-slate-500"></i> Partitura JSON (Saída da LLM)
+                    <i class="fa-solid fa-code text-indigo-400"></i> Colar Partitura JSON (Gerada pela IA)
                 </span>
-                <span id="json-status" class="text-[10px] text-slate-500">Aguardando comando...</span>
+                <button onclick="carregarJSONColado()" class="bg-slate-800 hover:bg-slate-700 text-indigo-400 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-700 transition-all flex items-center gap-1.5 active:scale-95">
+                    <i class="fa-solid fa-upload"></i> Carregar e Tocar este JSON
+                </button>
             </div>
-            <pre id="json-output" class="bg-slate-950 p-4 rounded-xl text-xs font-mono text-indigo-300 h-36 overflow-y-auto border border-slate-800/80 leading-relaxed"><code>// O JSON estruturado gerado pela LLM aparecerá aqui para o Tone.js renderizar.</code></pre>
+            <textarea id="json-textarea" placeholder="Cole o JSON da música aqui..." 
+                class="w-full bg-slate-950 p-4 rounded-xl text-xs font-mono text-indigo-300 h-36 focus:outline-none focus:border-indigo-500 border border-slate-800/80 leading-relaxed resize-none">// Cole o JSON gerado por mim aqui e clique em "Carregar e Tocar este JSON"</textarea>
+            <span id="json-status" class="text-[11px] text-slate-500">Aguardando inserção de dados...</span>
         </div>
 
     </main>
@@ -109,45 +113,21 @@
             const loadingDiv = document.getElementById('loading-samples');
 
             try {
-                // Necessário interação do usuário para destravar o contexto de áudio dos navegadores
                 await Tone.start();
                 
                 badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Áudio Ativo`;
                 badge.className = "text-xs px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-2";
 
-                // Criando o Sampler com notas reais de um piano acústico (Salamander Grand Piano)
                 sampler = new Tone.Sampler({
                     urls: {
-                        "A0": "A0.mp3",
-                        "C1": "C1.mp3",
-                        "D#1": "Ds1.mp3",
-                        "F#1": "Fs1.mp3",
-                        "A1": "A1.mp3",
-                        "C2": "C2.mp3",
-                        "D#2": "Ds2.mp3",
-                        "F#2": "Fs2.mp3",
-                        "A2": "A2.mp3",
-                        "C3": "C3.mp3",
-                        "D#3": "Ds3.mp3",
-                        "F#3": "Fs3.mp3",
-                        "A3": "A3.mp3",
-                        "C4": "C4.mp3",
-                        "D#4": "Ds4.mp3",
-                        "F#4": "Fs4.mp3",
-                        "A4": "A4.mp3",
-                        "C5": "C5.mp3",
-                        "D#5": "Ds5.mp3",
-                        "F#5": "Fs5.mp3",
-                        "A5": "A5.mp3",
-                        "C6": "C6.mp3",
-                        "D#6": "Ds6.mp3",
-                        "F#6": "Fs6.mp3",
-                        "A6": "A6.mp3",
-                        "C7": "C7.mp3",
-                        "D#7": "Ds7.mp3",
-                        "F#7": "Fs7.mp3",
-                        "A7": "A7.mp3",
-                        "C8": "C8.mp3"
+                        "A0": "A0.mp3", "C1": "C1.mp3", "D#1": "Ds1.mp3", "F#1": "Fs1.mp3",
+                        "A1": "A1.mp3", "C2": "C2.mp3", "D#2": "Ds2.mp3", "F#2": "Fs2.mp3",
+                        "A2": "A2.mp3", "C3": "C3.mp3", "D#3": "Ds3.mp3", "F#3": "Fs3.mp3",
+                        "A3": "A3.mp3", "C4": "C4.mp3", "D#4": "Ds4.mp3", "F#4": "Fs4.mp3",
+                        "A4": "A4.mp3", "C5": "C5.mp3", "D#5": "Ds5.mp3", "F#5": "Fs5.mp3",
+                        "A5": "A5.mp3", "C6": "C6.mp3", "D#6": "Ds6.mp3", "F#6": "Fs6.mp3",
+                        "A6": "A6.mp3", "C7": "C7.mp3", "D#7": "Ds7.mp3", "F#7": "Fs7.mp3",
+                        "A7": "A7.mp3", "C8": "C8.mp3"
                     },
                     baseUrl: "https://tonejs.github.io/audio/salamander/",
                     onload: () => {
@@ -165,61 +145,59 @@
             }
         }
 
-        // Simula o comportamento da LLM gerando uma partitura JSON estruturada com base no prompt
-        // (Aqui é onde futuramente você integrará uma chamada fetch para a API da LLM)
-        async function gerarECompositar() {
+        // Função para ler o JSON colado na caixa de texto pelo usuário
+        async function carregarJSONColado() {
             await inicializarAudio();
-            
-            const btnGerar = document.getElementById('btn-gerar');
-            const promptTexto = document.getElementById('prompt-input').value;
-            
-            btnGerar.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> IA Compondo...`;
-            btnGerar.setAttribute('disabled', 'true');
+            const textoArea = document.getElementById('json-textarea').value;
+            const statusLabel = document.getElementById('json-status');
 
-            setTimeout(() => {
-                // Simulação de resposta estruturada vinda de uma LLM
-                // A LLM focou estritamente em gerar dados musicais válidos para o Tone.js
-                dadosJSONAtual = {
-                    "meta": {
-                        "compositor": "LLM Assistant",
-                        "prompt": promptTexto,
-                        "instrumento": "Piano Acústico"
-                    },
-                    "tempo": 95,
-                    "notas": [
-                        { "time": "0:0:0", "note": "C4", "duration": "4n" },
-                        { "time": "0:1:0", "note": "E4", "duration": "4n" },
-                        { "time": "0:2:0", "note": "G4", "duration": "4n" },
-                        { "time": "0:3:0", "note": "B4", "duration": "4n" },
-                        { "time": "1:0:0", "note": "C5", "duration": "2n" },
-                        { "time": "1:2:0", "note": "G4", "duration": "2n" },
-                        { "time": "2:0:0", "note": "A4", "duration": "4n" },
-                        { "time": "2:1:0", "note": "F4", "duration": "4n" },
-                        { "time": "2:2:0", "note": "D4", "duration": "4n" },
-                        { "time": "2:3:0", "note": "G3", "duration": "4n" },
-                        { "time": "3:0:0", "note": "C4", "duration": "1m" }
-                    ]
-                };
-
-                // Exibe o JSON na tela
-                document.getElementById('json-output').innerHTML = `<code>${JSON.stringify(dadosJSONAtual, null, 2)}</code>`;
-                document.getElementById('json-status').innerText = "Gerado com sucesso por IA";
+            try {
+                // Tenta converter o texto digitado/colado em JSON válido
+                dadosJSONAtual = JSON.parse(textoArea);
                 
-                // Atualiza informações na interface
-                document.getElementById('info-musica').innerText = `Composição: "${promptTexto.substring(0, 30)}..."`;
-                document.getElementById('info-tempo').innerText = `BPM: ${dadosJSONAtual.tempo} | Notas: ${dadosJSONAtual.notas.length}`;
+                statusLabel.innerText = "JSON carregado e validado com sucesso!";
+                statusLabel.className = "text-[11px] text-emerald-400";
 
-                btnGerar.innerHTML = `<i class="fa-solid fa-robot"></i> Gerar e Tocar`;
-                btnGerar.removeAttribute('disabled');
+                // Atualiza informações na interface
+                const promptDesc = dadosJSONAtual.meta && dadosJSONAtual.meta.prompt ? dadosJSONAtual.meta.prompt : "Música personalizada";
+                document.getElementById('info-musica').innerText = `Composição: "${promptDesc.substring(0, 30)}..."`;
+                document.getElementById('info-tempo').innerText = `BPM: ${dadosJSONAtual.tempo} | Notas: ${dadosJSONAtual.notas.length}`;
 
                 if (samplesProntos) {
                     document.getElementById('btn-play').removeAttribute('disabled');
                 }
 
-                // Toca automaticamente após gerar
+                // Toca automaticamente após carregar
                 tocarMusicaAtual();
 
-            }, 1000);
+            } catch (error) {
+                statusLabel.innerText = "Erro: O texto colado não é um JSON válido. Verifique as chaves e aspas.";
+                statusLabel.className = "text-[11px] text-rose-400";
+                console.error("Erro ao fazer parse do JSON:", error);
+            }
+        }
+
+        // Simulação interna apenas para teste rápido
+        function gerarECompositarMock() {
+            const exemploJSON = {
+                "meta": {
+                    "compositor": "IA Assistant",
+                    "prompt": document.getElementById('prompt-input').value,
+                    "instrumento": "Piano Acústico"
+                },
+                "tempo": 100,
+                "notas": [
+                    { "time": "0:0:0", "note": "C4", "duration": "4n" },
+                    { "time": "0:1:0", "note": "E4", "duration": "4n" },
+                    { "time": "0:2:0", "note": "G4", "duration": "4n" },
+                    { "time": "1:0:0", "note": "A4", "duration": "2n" },
+                    { "time": "1:2:0", "note": "F4", "duration": "2n" }
+                ]
+            };
+
+            // Joga o exemplo formatado na textarea para o usuário ver
+            document.getElementById('json-textarea').value = JSON.stringify(exemploJSON, null, 2);
+            carregarJSONColado();
         }
 
         // Executa a música usando o Tone.js e o Sampler
@@ -231,7 +209,6 @@
             Tone.Transport.bpm.value = dadosJSONAtual.tempo;
             Tone.Transport.position = 0;
 
-            // Cria um Part do Tone.js mapeando as notas geradas pela LLM
             partAtual = new Tone.Part((time, value) => {
                 sampler.triggerAttackRelease(value.note, value.duration, time);
             }, dadosJSONAtual.notas);
